@@ -25,8 +25,9 @@ export class ControllerController {
   @HttpCode(HttpStatus.OK)
   async getControllers(
     @Query() pageOptionsDto: PageOptionsDto,
+    @Query('search') search?: string,
   ): Promise<PageDto<ControllerEntity>> {
-    return this.controllerService.getController(pageOptionsDto);
+    return this.controllerService.getController(pageOptionsDto, search);
   }
 
   @Get(':id')

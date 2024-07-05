@@ -31,9 +31,14 @@ export class UserService {
     return await this.userRepository.find();
   }
 
-  async getUsers(pageOptionsDto: PageOptionsDto, role?: Role, email?: string): Promise<PageDto<User>> {
+  async getUsers(pageOptionsDto: PageOptionsDto, role?: Role, email?: string, search?: string): Promise<PageDto<User>> {
     const { skip, take } = pageOptionsDto;
     const queryBuilder = this.userRepository.createQueryBuilder('user');
+
+    if (search) {
+      const searchTerm = `%${search.toLowerCase()}%`;
+      queryBuilder.where('LOWER(user.name) LIKE :search', { search: searchTerm });
+    }
 
     if (role) {
       queryBuilder.where('user.role = :role', { role });

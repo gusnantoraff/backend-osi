@@ -25,8 +25,9 @@ export class ClusterController {
   @HttpCode(HttpStatus.OK)
   async getClusters(
     @Query() pageOptionsDto: PageOptionsDto,
+    @Query('search') search?: string,
   ): Promise<PageDto<Cluster>> {
-    return this.clusterService.getClusters(pageOptionsDto);
+    return this.clusterService.getClusters(pageOptionsDto, search);
   }
 
   @Get(':id')

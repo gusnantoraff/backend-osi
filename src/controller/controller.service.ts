@@ -48,8 +48,14 @@ export class ControllerService {
 
   public async getController(
     pageOptionsDto: PageOptionsDto,
+    search?: string,
   ): Promise<PageDto<Controller>> {
     const queryBuilder = this.controllerRepository.createQueryBuilder('controller');
+
+    if (search) {
+      const searchTerm = `%${search.toLowerCase()}%`;
+      queryBuilder.where('LOWER(controller.name) LIKE :search', { search: searchTerm });
+    }
 
     queryBuilder.leftJoinAndSelect('controller.template', 'template');
     queryBuilder.leftJoinAndSelect('controller.cluster', 'cluster');

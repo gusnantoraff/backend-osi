@@ -31,8 +31,14 @@ export class ClusterService {
 
   public async getClusters(
     pageOptionsDto: PageOptionsDto,
+    search?: string,
   ): Promise<PageDto<Cluster>> {
     const queryBuilder = this.clusterRepository.createQueryBuilder('cluster');
+
+    if (search) {
+      const searchTerm = `%${search.toLowerCase()}%`;
+      queryBuilder.where('LOWER(cluster.name) LIKE :search', { search: searchTerm });
+    }
 
     queryBuilder
       .skip(pageOptionsDto.skip)

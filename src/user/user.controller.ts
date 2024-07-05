@@ -31,9 +31,10 @@ export class UserController {
   async findAll(
     @Query('role') role: Role,
     @Query('email') email: string,
+    @Query('search') search: string,
     @Query() pageOptionsDto: PageOptionsDto,
   ): Promise<PageDto<User>> {
-    return this.userService.getUsers(pageOptionsDto, role, email);
+    return this.userService.getUsers(pageOptionsDto, role, email, search);
   }
 
   @Get('all')
