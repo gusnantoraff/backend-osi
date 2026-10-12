@@ -1,8 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import * as dotenv from 'dotenv';
+import { ConfigService } from '@nestjs/config'; // 1. Import ConfigService
 import axios from 'axios';
-
-dotenv.config();
 
 export interface Recommendations {
   ec: number | null;
@@ -15,9 +13,13 @@ export interface Recommendations {
 
 @Injectable()
 export class OpenAiService {
-  private readonly apiKey = process.env.OPENAI_API_KEY;
+  // 2. Inject ConfigService lewat constructor
+  constructor(private readonly configService: ConfigService) {}
 
   async generateRecommendations(plantName: string, typePlant: string, dap: number, location: number): Promise<Recommendations> {
+    // 3. Ambil API Key menggunakan ConfigService
+    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
@@ -34,13 +36,13 @@ export class OpenAiService {
                         \nType of Plant: ${typePlant},
                         \nDAP (Days After Plant) : ${dap},
                         \nbased on Location Coordinate: ${location} and today's weather from https://weather.com/weather/today/l/${location}?par=google,
-                        for IoT Hydroponics mqtt`
+                        \nfor IoT Hydroponics mqtt`
           },
         ],
       },
       {
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${apiKey}`, // 4. Pakai variabel apiKey baru
           'Content-Type': 'application/json',
         },
       },
