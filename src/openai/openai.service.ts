@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
+import { GoogleGenAI, Type } from '@google/genai';
 
 export interface Recommendations {
   ec: number | null;
@@ -14,8 +14,14 @@ export interface Recommendations {
 @Injectable()
 export class OpenAiService {
   private readonly logger = new Logger(OpenAiService.name);
+  private ai: GoogleGenAI;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) {
+    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
+    if (apiKey) {
+      this.ai = new GoogleGenAI({ apiKey });
+    }
+  }
 
   async generateRecommendations(
     plantName: string,
@@ -23,117 +29,85 @@ export class OpenAiService {
     dap: number,
     location: number,
   ): Promise<Recommendations> {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
 
     if (!apiKey) {
-      this.logger.error('OPENAI_API_KEY belum terkonfigurasi di Environment Variables!');
-      throw new Error('Konfigurasi API Key OpenAI tidak ditemukan.');
+      this.logger.error('GEMINI_API_KEY belum terkonfigurasi di Environment Variables!');
+      throw new Error('Konfigurasi API Key Gemini tidak ditemukan.');
+    }
+
+    if (!this.ai) {
+      this.ai = new GoogleGenAI({ apiKey });
     }
 
     try {
-      const response = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          model: 'gpt-4-turbo',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are an expert in plant care. Provide detailed recommendations EC, pH, humidity, air temperature, water temperature, and waterflow based on plant name, type of plant, and days after planting (DAP).',
+      // Menggunakan Gemini 1.5 Flash (Gratis & Sangat Cepat)
+      const response = await this.ai.models.generateContent({
+        model: 'gemini-1.5-flash',
+        contents: `Provide optimal hydroponic parameters for:
+        - Plant Name: ${plantName}
+        - Type of Plant: ${typePlant}
+        - DAP (Days After Planting): ${dap}
+        - Location Coordinate: ${location}`,
+        config: {
+          systemInstruction:
+            'You are an expert in plant care and IoT Hydroponics. Provide precise numeric values for EC, pH range, humidity, air temperature range, water temperature, and water flow.',
+          responseMimeType: 'application/json',
+          // Menentukan skema JSON agar Gemini mengembalikan struktur yang presisi
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              ec: { type: Type.NUMBER, description: 'EC in dS/m' },
+              ph: {
+                type: Type.ARRAY,
+                items: { type: Type.NUMBER },
+                description: 'pH range [min, max]',
+              },
+              humidity: { type: Type.NUMBER, description: 'Humidity percentage' },
+              temperature_air: {
+                type: Type.ARRAY,
+                items: { type: Type.NUMBER },
+                description: 'Air temperature range in Celsius [min, max]',
+              },
+              temperature_water: {
+                type: Type.NUMBER,
+                description: 'Water temperature in Celsius',
+              },
+              water_flow: {
+                type: Type.NUMBER,
+                description: 'Water flow in liters per minute',
+              },
             },
-            {
-              role: 'user',
-              content: `Please provide specific and unchanging data EC per day (dS/m), pH, humidity, air temperature, water temperature, and waterflow (liter/m) for a plant with the following details:
-                        \n\nPlant Name: ${plantName},
-                        \nType of Plant: ${typePlant},
-                        \nDAP (Days After Plant) : ${dap},
-                        \nbased on Location Coordinate: ${location} and today's weather from https://weather.com/weather/today/l/${location}?par=google,
-                        \nfor IoT Hydroponics mqtt`,
-            },
-          ],
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
+            required: [
+              'ec',
+              'ph',
+              'humidity',
+              'temperature_air',
+              'temperature_water',
+              'water_flow',
+            ],
           },
         },
-      );
+      });
 
-      const recommendationsText = response.data?.choices?.[0]?.message?.content;
+      const responseText = response.text;
 
-      if (!recommendationsText) {
-        this.logger.warn('Respon dari OpenAI kosong.');
+      if (!responseText) {
+        this.logger.warn('Respon dari Gemini kosong.');
         return this.getEmptyRecommendations();
       }
 
-      return this.parseRecommendations(recommendationsText);
-    } catch (error) {
-      // Menampilkan log detail error dari OpenAI/Axios ke terminal server
-      if (axios.isAxiosError(error)) {
-        this.logger.error(
-          'OpenAI API Request Error:',
-          JSON.stringify(error.response?.data || error.message),
-        );
-      } else {
-        this.logger.error('Unexpected Error during AI generation:', error);
-      }
+      // Langsung parse JSON (tanpa perlu Regex)
+      const parsedRecommendations: Recommendations = JSON.parse(responseText);
+      return parsedRecommendations;
 
+    } catch (error) {
+      this.logger.error(
+        'Gemini API Error:',
+        error instanceof Error ? error.message : String(error),
+      );
       throw error;
     }
-  }
-
-  private parseRecommendations(recommendationsText: string): Recommendations {
-    const recommendations: Recommendations = this.getEmptyRecommendations();
-
-    try {
-      const ecMatch = recommendationsText.match(/EC.*?:.*?(\d+(\.\d+)?)(\s*dS\/m)/i);
-      const phMatch = recommendationsText.match(/pH.*?:.*?(\d+(\.\d+)?).*?(\d+(\.\d+)?)/i);
-      const humidityMatch = recommendationsText.match(/humidity.*?:.*?(\d+(\.\d+)?%)/i);
-      const airTempMatch = recommendationsText.match(
-        /air temperature.*?:.*?(\d+(\.\d+)?(°C|degrees Celsius)).*?(\d+(\.\d+)?(°C|degrees Celsius))/i,
-      );
-      const waterTempMatch = recommendationsText.match(
-        /water temperature.*?:.*?(\d+(\.\d+)?(°C|degrees Celsius))/i,
-      );
-      const waterflowMatch = recommendationsText.match(/waterflow.*?:.*?(\d+(\.\d+)?)/i);
-
-      if (ecMatch && ecMatch[1]) {
-        recommendations.ec = parseFloat(ecMatch[1]);
-      }
-
-      if (phMatch && phMatch[1] && phMatch[3]) {
-        recommendations.ph = [parseFloat(phMatch[1]), parseFloat(phMatch[3])];
-      }
-
-      if (humidityMatch && humidityMatch[1]) {
-        recommendations.humidity = parseFloat(humidityMatch[1].replace('%', ''));
-      }
-
-      if (airTempMatch && airTempMatch[1] && airTempMatch[4]) {
-        const minTemp = parseFloat(
-          airTempMatch[1].replace('°C', '').replace('degrees Celsius', '').trim(),
-        );
-        const maxTemp = parseFloat(
-          airTempMatch[4].replace('°C', '').replace('degrees Celsius', '').trim(),
-        );
-        recommendations.temperature_air = [minTemp, maxTemp];
-      }
-
-      if (waterTempMatch && waterTempMatch[1]) {
-        recommendations.temperature_water = parseFloat(
-          waterTempMatch[1].replace('°C', '').replace('degrees Celsius', '').trim(),
-        );
-      }
-
-      if (waterflowMatch && waterflowMatch[1]) {
-        recommendations.water_flow = parseFloat(waterflowMatch[1]);
-      }
-    } catch (parseError) {
-      this.logger.error('Gagal melakukan parsing teks dari OpenAI:', parseError);
-    }
-
-    return recommendations;
   }
 
   private getEmptyRecommendations(): Recommendations {

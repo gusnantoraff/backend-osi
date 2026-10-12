@@ -23,6 +23,7 @@
     "migration:run": "typeorm-ts-node-commonjs migration:run"
   },
   "dependencies": {
+    "@google/genai": "^2.28.0",
     "@nestjs/class-validator": "^0.13.1",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.2.1",
